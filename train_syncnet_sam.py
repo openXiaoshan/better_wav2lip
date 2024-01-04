@@ -44,7 +44,7 @@ print('use_cuda: {}'.format(use_cuda))
 syncnet_T = 5
 syncnet_mel_step_size = 16
 format_video = 'mov'
-hparams.set_hparam("img_size", 384)
+# hparams.set_hparam("img_size", 384)
 
 # mel augmentation
 def mask_mel(crop_mel):

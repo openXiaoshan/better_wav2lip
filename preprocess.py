@@ -23,7 +23,7 @@ import face_detection
 parser = argparse.ArgumentParser()
 
 parser.add_argument('--ngpu', help='Number of GPUs across which to run in parallel', default=1, type=int)
-parser.add_argument('--batch_size', help='Single GPU Face detection batch size', default=32, type=int)
+parser.add_argument('--batch_size', help='Single GPU Face detection batch size', default=4, type=int)
 parser.add_argument("--data_root", help="Root folder of the LRS2 dataset", required=True)
 parser.add_argument("--preprocessed_root", help="Root folder of the preprocessed dataset", required=True)
 
@@ -35,22 +35,40 @@ fa = [face_detection.FaceAlignment(face_detection.LandmarksType._2D, flip_input=
 template = 'ffmpeg -loglevel panic -y -i {} -strict -2 {}'
 # template2 = 'ffmpeg -hide_banner -loglevel panic -threads 1 -y -i {} -async 1 -ac 1 -vn -acodec pcm_s16le -ar 16000 {}'
 
+
 def process_video_file(vfile, args, gpu_id):
 	video_stream = cv2.VideoCapture(vfile)
-	
+
+	width = int(video_stream.get(cv2.CAP_PROP_FRAME_WIDTH))
+	height = int(video_stream.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+	max_dimension = max(width, height)
+	if max_dimension > 1920:
+		scaling_factor = 1920 / max_dimension
+	else:
+		scaling_factor = 1
+	new_width = int(width * scaling_factor)
+	new_height = int(height * scaling_factor)
+
 	frames = []
 	while 1:
 		still_reading, frame = video_stream.read()
 		if not still_reading:
 			video_stream.release()
 			break
-		frames.append(frame)
+		resized_frame = cv2.resize(frame, (new_width, new_height))
+		frames.append(resized_frame)
 	
 	vidname = os.path.basename(vfile).split('.')[0]
 	dirname = vfile.split('/')[-2]
 
 	fulldir = path.join(args.preprocessed_root, dirname, vidname)
 	os.makedirs(fulldir, exist_ok=True)
+
+	current_frame_count = len(list(filter(lambda x: x.split(".")[-1] == "jpg", os.listdir(fulldir))))
+	if current_frame_count == len(frames):
+		print("already detected, skip")
+		return
 
 	batches = [frames[i:i + args.batch_size] for i in range(0, len(frames), args.batch_size)]
 
@@ -91,7 +109,7 @@ def mp_handler(job):
 def main(args):
 	print('Started processing for {} with {} GPUs'.format(args.data_root, args.ngpu))
 
-	filelist = glob(path.join(args.data_root, '*/*.mp4'))
+	filelist = glob(path.join(args.data_root, '*.mp4'))
 
 	jobs = [(vfile, args, i%args.ngpu) for i, vfile in enumerate(filelist)]
 	p = ThreadPoolExecutor(args.ngpu)
